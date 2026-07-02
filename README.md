@@ -23,7 +23,7 @@ No graph nodes are added; it's UI + a handful of local server routes. **Your lib
 ## ▶ Walkthrough
 
 <p align="center">
-  <a href="assets/G-Prompts_Walkthrough.mp4"><img src="assets/G-Prompts_Walkthrough.png" alt="Watch the walkthrough" width="640"></a>
+  <a href="https://github.com/AI4VFX/comfyui-gprompts/releases/download/v1.0.0/G-Prompts_Walkthrough.mp4"><img src="assets/G-Prompts_Walkthrough.png" alt="Watch the walkthrough" width="640"></a>
   <br><em>▶ Click to watch the walkthrough (~4 min)</em>
 </p>
 
