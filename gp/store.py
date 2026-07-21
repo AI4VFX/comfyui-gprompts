@@ -703,7 +703,8 @@ async def tag_rename(old, new):
         for t in tags:
             t2 = new if t == old else t
             if t2 not in seen:
-                seen.add(t2); out.append(t2)
+                seen.add(t2)
+                out.append(t2)
         meta["tags"] = out
         return meta
     async with _LOCK:
