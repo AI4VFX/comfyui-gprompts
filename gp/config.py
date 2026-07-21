@@ -5,6 +5,7 @@ node is distributable. Config lives in ComfyUI's user dir (per install), which
 means two installs can point at the same folder to share one library.
 """
 
+import contextlib
 import json
 import os
 import stat
@@ -27,6 +28,7 @@ TYPE_TO_CATEGORY = {
     "audio": "Audio",
     "editing": "Other",
 }
+DEFAULT_CATEGORIES = ("Image", "Video", "Audio", "Other")
 DEFAULT_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 
 PROMPT_EXT = ".txt"          # positive prompt text
@@ -34,8 +36,14 @@ NEG_EXT = ".neg.txt"         # negative prompt text
 META_EXT = ".json"           # metadata + scan anchor
 WORKFLOW_SUFFIX = ".workflow.json"   # full graph that produced the result
 THUMB_SUFFIX = ".thumb.jpg"
+ASSETS_SUFFIX = ".assets.zip"        # input media referenced by the workflow
 REMOVED_SUFFIX = ".removed"
 RESERVED_DIRS = {"defaults", ".trash"}
+# Library-level Trash folder: "deleted" cards are MOVED here (mirroring their
+# original path) and the user empties it manually — the app never deletes.
+# Deliberately NOT in RESERVED_DIRS: trashed cards must stay scannable so the
+# Trash view can browse/restore them and serve their thumbnails.
+TRASH_DIR = "Trash"
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
 VIDEO_EXTS = (".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4v")
@@ -44,7 +52,7 @@ AUDIO_EXTS = (".ogg", ".mp3", ".wav", ".flac", ".m4a", ".aac")
 
 def _user_dir():
     """ComfyUI per-install user directory (where our config.json lives)."""
-    try:
+    with contextlib.suppress(Exception):
         import folder_paths
         getu = getattr(folder_paths, "get_user_directory", None)
         if callable(getu):
@@ -52,8 +60,6 @@ def _user_dir():
         base = getattr(folder_paths, "base_path", None)
         if base:
             return os.path.join(base, "user")
-    except Exception:
-        pass
     return os.path.join(os.path.expanduser("~"), ".comfyui-gprompts")
 
 
@@ -67,10 +73,19 @@ def _config_path():
 
 
 _DEFAULT_CONFIG = {"root": None, "skipOverwriteWarning": False, "autoClose": False,
-                   "captureShortcut": "Alt+Q"}
+                   "captureShortcut": "Alt+Q",
+                   "rememberFolder": True, "lastFolder": None,
+                   "captureAssets": False, "packIncludeAssets": True,
+                   "packToastSeconds": 2}
 # Settings the client may set via /set_config (root is set via /set_root only).
-SETTABLE_KEYS = ("skipOverwriteWarning", "autoClose", "captureShortcut")
+SETTABLE_KEYS = ("skipOverwriteWarning", "autoClose", "captureShortcut",
+                 "rememberFolder", "lastFolder", "captureAssets", "packIncludeAssets",
+                 "packToastSeconds")
 _STRING_KEYS = ("captureShortcut",)
+# lastFolder: None = "All", "" = library root, "Foo/Bar" = a folder — the None
+# must survive the round-trip, so it gets nullable-string coercion.
+_NULLABLE_STRING_KEYS = ("lastFolder",)
+_NUMBER_KEYS = ("packToastSeconds",)   # clamped ints
 
 
 def load_config():
@@ -115,6 +130,23 @@ def suggested_default_root():
     return os.path.join(base, "G-Prompts")
 
 
+def ensure_trash(root):
+    """Make sure <root>/Trash exists, adopting an existing trash/TRASH dir by
+    case-renaming it (best effort — a failure just leaves it as-is)."""
+    try:
+        for name in os.listdir(root):
+            if name.lower() == TRASH_DIR.lower() and os.path.isdir(os.path.join(root, name)):
+                if name != TRASH_DIR:
+                    try:
+                        os.rename(os.path.join(root, name), os.path.join(root, TRASH_DIR))
+                    except OSError:
+                        pass
+                return
+        os.makedirs(os.path.join(root, TRASH_DIR), exist_ok=True)
+    except OSError:
+        pass
+
+
 def set_root(path):
     """Validate, create if needed, and persist the chosen library root."""
     if not path or not os.path.isabs(path):
@@ -122,6 +154,7 @@ def set_root(path):
     path = os.path.normpath(path)
     os.makedirs(path, exist_ok=True)
     os.makedirs(os.path.join(path, "defaults"), exist_ok=True)
+    ensure_trash(path)
     if not os.path.isdir(path):
         raise ValueError("not a directory")
     cfg = load_config()
@@ -142,7 +175,17 @@ def update_settings(patch):
     cfg = load_config()
     for k in SETTABLE_KEYS:
         if k in patch:
-            cfg[k] = str(patch[k]) if k in _STRING_KEYS else bool(patch[k])
+            if k in _NULLABLE_STRING_KEYS:
+                cfg[k] = None if patch[k] is None else str(patch[k])
+            elif k in _STRING_KEYS:
+                cfg[k] = str(patch[k])
+            elif k in _NUMBER_KEYS:
+                try:
+                    cfg[k] = min(15, max(1, int(float(patch[k]))))
+                except (TypeError, ValueError):
+                    cfg[k] = _DEFAULT_CONFIG[k]
+            else:
+                cfg[k] = bool(patch[k])
     save_config(cfg)
     return cfg
 
@@ -162,12 +205,10 @@ def fs_roots():
     else:
         drives.append({"label": "/", "path": "/"})
     shortcuts = []
-    try:
+    with contextlib.suppress(Exception):
         home = os.path.normpath(os.path.expanduser("~"))
         if os.path.isdir(home):
             shortcuts.append({"label": "Home", "path": home})
-    except Exception:
-        pass
     shortcuts.append({"label": "Suggested", "path": suggested_default_root()})
     return {"drives": drives, "shortcuts": shortcuts}
 

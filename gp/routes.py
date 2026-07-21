@@ -34,6 +34,11 @@ async def r_state(request):
         "skipOverwriteWarning": cfg.get("skipOverwriteWarning", False),
         "autoClose": cfg.get("autoClose", False),
         "captureShortcut": cfg.get("captureShortcut", "Alt+Q"),
+        "rememberFolder": cfg.get("rememberFolder", True),
+        "lastFolder": cfg.get("lastFolder"),
+        "captureAssets": cfg.get("captureAssets", False),
+        "packIncludeAssets": cfg.get("packIncludeAssets", True),
+        "packToastSeconds": cfg.get("packToastSeconds", 2),
     })
 
 
@@ -141,9 +146,10 @@ async def r_workflow(request):
 @routes.get(PREFIX + "/default_thumb")
 async def r_default_thumb(request):
     wf_type = request.query.get("type", "t2i")
+    category = request.query.get("category")   # per-card override (thumbChoice)
     root = C.get_root()
     if root:
-        p = M.default_thumb_path(root, wf_type)
+        p = M.default_thumb_path(root, wf_type, category)
         if p:
             # no-cache = revalidate via Last-Modified/ETag, so re-exported default
             # art shows after a normal refresh without a full re-download each time.
@@ -231,6 +237,16 @@ async def r_thumb_delete(request):
         d = await request.json()
         p = await S.thumb_delete(d.get("folder", ""), d["name"])
         return _ok({"prompt": p})
+    except Exception as e:
+        return _bad(e, 500)
+
+
+@routes.post(PREFIX + "/capture_assets")
+async def r_capture_assets(request):
+    try:
+        d = await request.json()
+        result = await S.capture_assets_now(d.get("folder", ""), d["name"])
+        return _ok(result)
     except Exception as e:
         return _bad(e, 500)
 

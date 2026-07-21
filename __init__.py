@@ -8,7 +8,9 @@ Storage = real sidecar files on disk in a user-chosen library root:
     <root>/<Folder>/<name>.json         metadata
     <root>/<Folder>/<name>.<ext>        result media (image/video/audio)
     <root>/<Folder>/<name>.thumb.jpg    800x450 card poster
-The filesystem IS the database, so manual replace/remove/delete behave predictably.
+The filesystem IS the database, so manual replace/remove/trash behave predictably.
+Nothing is ever deleted: "Move to Trash" relocates files into <root>/Trash
+(mirroring their folder path) and the user empties that folder manually.
 """
 
 NODE_CLASS_MAPPINGS = {}

@@ -78,6 +78,38 @@ export function renderSettings(container) {
     wrap.appendChild(toggleRow(
       "Auto-close panel", "Close G-Prompts when you click inside the ComfyUI canvas.",
       () => store.autoClose, async (v) => { store.autoClose = v; await API.setConfig({ autoClose: v }); }));
+    wrap.appendChild(toggleRow(
+      "Remember selected folder", "Reopen G-Prompts in the folder you last selected.",
+      () => store.rememberFolder, async (v) => {
+        store.rememberFolder = v;
+        await API.setConfig({ rememberFolder: v, lastFolder: v ? store.currentFolder : null });
+      }));
+    wrap.appendChild(toggleRow(
+      "Capture input assets", "On capture, zip the input images/video/audio the workflow references beside the card (.assets.zip).",
+      () => store.captureAssets, async (v) => { store.captureAssets = v; await API.setConfig({ captureAssets: v }); }));
+    wrap.appendChild(toggleRow(
+      "Include captured assets in packs", "Pack the .assets.zip together with everything else.",
+      () => store.packIncludeAssets, async (v) => { store.packIncludeAssets = v; await API.setConfig({ packIncludeAssets: v }); }));
+
+    // ── pack toast duration (1–15 s) ──
+    const secLabel = el("span", { class: "gp-muted", style: "min-width:32px;text-align:right",
+      text: (store.packToastSeconds || 2) + " s" });
+    const secSlider = el("input", { type: "range", class: "gp-slider", min: "1", max: "15",
+      step: "1", value: String(store.packToastSeconds || 2) });
+    let secT = null;
+    secSlider.addEventListener("input", () => {
+      const v = Number(secSlider.value);
+      secLabel.textContent = v + " s";
+      store.packToastSeconds = v;
+      clearTimeout(secT);   // debounce: one config write per drag, not per tick
+      secT = setTimeout(() => API.setConfig({ packToastSeconds: v }).catch(() => {}), 300);
+    });
+    wrap.appendChild(el("div", { class: "gp-set-row" }, [
+      el("div", {}, [el("div", { text: "Pack notification duration", style: "font-weight:600" }),
+        el("div", { class: "gp-muted", text: "How long the \"Packed — path copied\" popup stays on screen." })]),
+      el("div", { class: "gp-spacer" }),
+      secSlider, secLabel,
+    ]));
 
     wrap.appendChild(el("div", { class: "gp-muted", style: "margin-top:8px",
       text: "Click the ⚙ gear again to return to your prompts." }));

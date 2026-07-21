@@ -8,6 +8,17 @@ import { startOutputTracker } from "./src/outputs.js";
 import { attachCanvasDrop } from "./src/canvasdrop.js";
 import { attachShortcut } from "./src/shortcut.js";
 import { refreshState, refreshLibrary } from "./src/data.js";
+import { store } from "./src/store.js";
+import { API } from "./src/api.js";
+
+// Restore the remembered folder once library data is in (needs store.folders
+// for validation). A vanished folder falls back to All and clears the config.
+function restoreFolder() {
+  if (!store.rememberFolder || store.savedFolder == null) return;
+  const f = store.savedFolder;
+  if (f === "" || store.folders.includes(f)) store.set({ currentFolder: f });
+  else API.setConfig({ lastFolder: null }).catch(() => {});
+}
 
 app.registerExtension({
   name: "GPrompts",
@@ -18,7 +29,7 @@ app.registerExtension({
     startOutputTracker();
     attachCanvasDrop();
     attachShortcut();
-    try { await refreshState(); await refreshLibrary(); } catch (e) { console.warn("[G-Prompts]", e); }
+    try { await refreshState(); await refreshLibrary(); restoreFolder(); } catch (e) { console.warn("[G-Prompts]", e); }
     try {
       app.extensionManager.registerSidebarTab({
         id: "gprompts",

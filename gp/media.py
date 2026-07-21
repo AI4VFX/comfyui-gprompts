@@ -175,8 +175,13 @@ def clear_media(base_path):
 
 # ── default type-thumbnails ─────────────────────────────────────────────────
 
-def default_thumb_path(root, wf_type):
-    cat = C.TYPE_TO_CATEGORY.get(wf_type, "Other")
+def default_thumb_path(root, wf_type, category=None):
+    """category (a DEFAULT_CATEGORIES name) overrides the type mapping — used
+    for a card's per-prompt default-thumbnail choice."""
+    if category in C.DEFAULT_CATEGORIES:
+        cat = category
+    else:
+        cat = C.TYPE_TO_CATEGORY.get(wf_type, "Other")
     ddir = os.path.join(root, "defaults")
     for ext in C.DEFAULT_EXTS:
         p = os.path.join(ddir, "Generic-%s%s" % (cat, ext))

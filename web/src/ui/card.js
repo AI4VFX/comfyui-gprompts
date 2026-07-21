@@ -116,6 +116,8 @@ export function buildCard(prompt) {
   const badges = el("div", { class: "gp-badges" }, [
     prompt.positive && prompt.positive.trim() ? el("span", { class: "gp-badge pos", text: "P" }) : null,
     prompt.negative && prompt.negative.trim() ? el("span", { class: "gp-badge neg", text: "N" }) : null,
+    prompt.hasThumb && prompt.hideThumb ? el("span", { class: "gp-badge info", text: "!", title: "Custom thumbnail hidden" }) : null,
+    prompt.hasAssets ? el("span", { class: "gp-badge assets", text: "A", title: "Input assets captured" }) : null,
   ]);
   const mtype = cardIcon(prompt);
   const title = el("div", { class: "gp-card-title", text: prompt.title, title: "double-click to rename",

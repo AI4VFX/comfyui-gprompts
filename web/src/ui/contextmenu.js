@@ -1,7 +1,7 @@
 // Right-click menus for cards and for the empty grid area.
-import { el, toast } from "../dom.js";
+import { el, toast, copyText } from "../dom.js";
 import { API } from "../api.js";
-import { store, selectCard, isSelected, selectedPromptObjs, visiblePrompts } from "../store.js";
+import { store, selectCard, isSelected, selectedPromptObjs, visiblePrompts, TRASH, inTrash } from "../store.js";
 import { refreshLibrary } from "../data.js";
 import { overwriteCard } from "../capture.js";
 import { assignTags } from "./tags.js";
@@ -66,6 +66,23 @@ export function showCardMenu(ev, prompt) {
   const multi = targets.length > 1;
   const one = targets[0] || prompt;
 
+  // Trashed cards get a reduced menu: Restore (reverse of the trash-move —
+  // strips the Trash/ prefix, so files return to their original folder) plus
+  // Cut/Copy (Paste into a normal folder doubles as restore-to-anywhere).
+  if (inTrash(one.folder)) {
+    renderMenu(ev, [
+      ["Restore" + (multi ? ` (${targets.length})` : ""), async () => {
+        await doForEach(targets, (t) =>
+          API.move(t.folder, t.name, t.folder === TRASH ? "" : t.folder.slice(TRASH.length + 1)));
+        toast(`Restored ${targets.length} prompt${multi ? "s" : ""}`, "ok");
+      }],
+      ["sep"],
+      ["Cut", () => { store.clipboard = { ids: targets.map((t) => t.id), mode: "cut" }; toast(`Cut ${targets.length}`); }],
+      ["Copy", () => { store.clipboard = { ids: targets.map((t) => t.id), mode: "copy" }; toast(`Copied ${targets.length}`); }],
+    ]);
+    return;
+  }
+
   renderMenu(ev, [
     ["New folder…", newFolder],
     ["sep"],
@@ -98,16 +115,55 @@ export function showCardMenu(ev, prompt) {
       await API.setMedia(one.folder, one.name, await readDataUrl(f), fileKind(f)); await refreshLibrary(); toast("Thumbnail set", "ok");
     }, multi],
     ["Remove Thumbnail", () => doForEach(targets, (t) => API.thumbRemove(t.folder, t.name)).then(() => toast("Thumbnail removed", "ok"))],
-    ["Delete Thumbnail", () => doForEach(targets, (t) => API.thumbDelete(t.folder, t.name)).then(() => toast("Thumbnail deleted", "ok"))],
+    ["Move Thumbnail to Trash", () => doForEach(targets, (t) => API.thumbDelete(t.folder, t.name)).then(() => toast("Thumbnail moved to Trash", "ok"))],
+    // Non-destructive: keep the custom thumb on disk, just show the default.
+    ...(one.hasThumb ? [[
+      one.hideThumb ? "Use custom thumbnail" : "Use default thumbnail",
+      async () => {
+        await API.updatePrompt(one.folder, one.name, { hideThumb: !one.hideThumb });
+        await refreshLibrary();
+        toast(one.hideThumb ? "Custom thumbnail shown" : "Default thumbnail shown", "ok");
+      }, multi]] : []),
+    // Which of the four defaults this card uses (only when a default is showing).
+    ...(!one.hasThumb || one.hideThumb ? [[
+      "Default thumbnail…",
+      () => {
+        const cur = one.thumbChoice || null;
+        const pick = (cat) => async () => {
+          await API.updatePrompt(one.folder, one.name, { thumbChoice: cat });
+          await refreshLibrary();
+        };
+        renderMenu(ev, [
+          [(cur === null ? "✓ " : "") + "Auto (by type)", pick(null)],
+          ...["Image", "Video", "Audio", "Other"].map((c) => [(cur === c ? "✓ " : "") + c, pick(c)]),
+        ]);
+      }, multi]] : []),
     ["sep"],
+    ...(one.hasWorkflow ? [[
+      "Capture input assets",
+      async () => {
+        const r = await API.captureAssets(one.folder, one.name);
+        if (r.ok) {
+          await refreshLibrary();
+          toast(r.count ? `Captured ${r.count} input asset(s)` : "No input assets found in workflow", "ok");
+        } else toast(r.error || "Failed", "error");
+      }, multi], ["sep"]] : []),
     ["Pack" + (multi ? ` (${targets.length})` : ""), async () => {
       const r = await API.pack(targets.map((t) => ({ folder: t.folder, name: t.name })));
-      if (r.ok) toast("Packed — opening Explorer", "ok"); else toast(r.error || "Pack failed", "error");
+      if (r.ok) {
+        const name = r.zip.split(/[\\/]/).pop();
+        const copied = await copyText(r.zip);
+        toast(copied ? `Packed: ${name} — path copied to clipboard` : `Packed: ${r.zip}`,
+          "ok", store.packToastSeconds * 1000);
+      } else toast(r.error || "Pack failed", "error");
     }],
     ["sep"],
-    ["Delete" + (multi ? ` (${targets.length})` : ""), async () => {
-      if (await confirmDialog(`Delete ${targets.length} prompt(s) to the Recycle Bin?`, "Delete", true))
-        await doForEach(targets, (t) => API.del(t.folder, t.name)).then(() => toast("Deleted", "ok"));
+    // Reversible, so a single card moves instantly; multi still confirms.
+    ["Move to Trash" + (multi ? ` (${targets.length})` : ""), async () => {
+      if (multi && !(await confirmDialog(`Move ${targets.length} prompts to Trash?`, "Move to Trash", true)))
+        return;
+      await doForEach(targets, (t) => API.del(t.folder, t.name));
+      toast("Moved to Trash", "ok");
     }, false, true],
   ]);
 }
@@ -116,10 +172,12 @@ export function showEmptyMenu(ev) {
   ev.preventDefault(); ev.stopPropagation();
   const cb = store.clipboard;
   const pasteLabel = "Paste" + (cb && cb.ids.length ? ` (${cb.ids.length})` : "");
+  // Trash scope: nothing can be created or pasted INTO Trash (backend rejects).
+  const trashScope = store.currentFolder != null && inTrash(store.currentFolder);
   renderMenu(ev, [
-    ["New folder…", newFolder],
+    ["New folder…", newFolder, trashScope],
     ["sep"],
-    [pasteLabel, () => pasteCards(pasteFolder()), !(cb && cb.ids.length)],
+    [pasteLabel, () => pasteCards(pasteFolder()), trashScope || !(cb && cb.ids.length)],
     ["sep"],
     ["Select all", () => store.set({ selectedIds: visiblePrompts().map((p) => p.id) })],
     ["Deselect all", () => store.set({ selectedIds: [], selectedId: null }), !store.selectedIds.length],

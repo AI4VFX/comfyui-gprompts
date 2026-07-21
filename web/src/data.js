@@ -11,6 +11,11 @@ export async function refreshState() {
     store.skipOverwriteWarning = !!s.skipOverwriteWarning;
     store.autoClose = !!s.autoClose;
     store.captureShortcut = s.captureShortcut || "Alt+Q";
+    store.rememberFolder = s.rememberFolder !== false;
+    store.savedFolder = s.lastFolder != null ? s.lastFolder : null;
+    store.captureAssets = !!s.captureAssets;
+    store.packIncludeAssets = s.packIncludeAssets !== false;
+    store.packToastSeconds = Math.min(15, Math.max(1, Number(s.packToastSeconds) || 2));
   }
   return s;
 }
@@ -22,6 +27,7 @@ export async function refreshLibrary() {
     store.prompts = r.prompts || [];
     store.folders = r.folders || [];
     store.registryTags = r.registry || [];
+    store.trashBytes = r.trashBytes || 0;
     store.emit();
   }
   return r;

@@ -24,7 +24,7 @@ export function clear(node) {
 }
 
 let toastHost = null;
-export function toast(msg, kind = "info") {
+export function toast(msg, kind = "info", ms = 2600) {
   if (!toastHost) {
     toastHost = el("div", { style: "position:fixed;bottom:16px;right:16px;z-index:100000;display:flex;flex-direction:column;gap:6px;pointer-events:none" });
     document.body.appendChild(toastHost);
@@ -32,8 +32,27 @@ export function toast(msg, kind = "info") {
   const bg = kind === "error" ? "#b71c1c" : kind === "ok" ? "#2e7d32" : "#2d6cdf";
   const t = el("div", { text: msg, style: `background:${bg};color:#fff;padding:8px 12px;border-radius:7px;font-size:12px;box-shadow:0 4px 14px #0008;max-width:340px` });
   toastHost.appendChild(t);
-  setTimeout(() => { t.style.transition = "opacity .4s"; t.style.opacity = "0"; }, 2600);
-  setTimeout(() => t.remove(), 3100);
+  setTimeout(() => { t.style.transition = "opacity .4s"; t.style.opacity = "0"; }, ms);
+  setTimeout(() => t.remove(), ms + 500);
+}
+
+// Clipboard write with a fallback for non-secure contexts. Returns success.
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {}
+  try {
+    const ta = el("textarea", { style: "position:fixed;opacity:0", value: text });
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch (_) {
+    return false;
+  }
 }
 
 // Draggable divider. `fixedEl` is the element whose size the drag sets; the
@@ -91,6 +110,26 @@ export function attachResizer(handle, block, onChange, min = 70) {
   });
 }
 
+// Human-readable size for the Trash badge. Smallest unit shown is KB.
+export function formatBytes(n) {
+  let v = (n || 0) / 1024;
+  const units = ["KB", "MB", "GB", "TB"];
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
+  const s = v >= 100 ? String(Math.round(v)) : v.toFixed(1).replace(/\.0$/, "");
+  return s + " " + units[u];
+}
+
+// Color tier for the Trash size badge: green ≤1 GB, orange ≤10 GB,
+// red ≤100 GB, purple beyond — a glanceable "time to empty it?" signal.
+export function sizeTier(n) {
+  const GB = 1024 ** 3;
+  if (n <= 1 * GB) return "green";
+  if (n <= 10 * GB) return "orange";
+  if (n <= 100 * GB) return "red";
+  return "purple";
+}
+
 let cssDone = false;
 export function injectCSS() {
   if (cssDone) return;
@@ -118,6 +157,12 @@ const CSS = `
 .gp-folder.gp-active{background:#2d6cdf33;color:#fff}
 .gp-folder.gp-drop{outline:2px solid #4f9bff;outline-offset:-2px;background:#2d6cdf33}
 .gp-folder .gp-fcount{opacity:.5;font-size:11px}
+.gp-folder.gp-trash{margin-top:6px;border-top:1px solid var(--border-color,#333);padding-top:6px}
+.gp-fsize{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700;flex:0 0 auto}
+.gp-fsize.gp-sz-green{background:#2e7d3244;color:#7bd489}
+.gp-fsize.gp-sz-orange{background:#ef6c0044;color:#ffb74d}
+.gp-fsize.gp-sz-red{background:#b71c1c44;color:#ef9a9a}
+.gp-fsize.gp-sz-purple{background:#6a1b9a44;color:#ce93d8}
 .gp-tags{flex:1 1 42%;display:flex;flex-direction:column;border-top:1px solid var(--border-color,#333);min-height:70px}
 .gp-tags-head{display:flex;align-items:center;gap:4px;padding:6px 6px 4px;flex:0 0 auto}
 .gp-tags-title{font-size:10px;letter-spacing:.5px;opacity:.6;font-weight:700;white-space:nowrap}
@@ -145,6 +190,8 @@ const CSS = `
 .gp-badge{font-size:10px;padding:1px 6px;border-radius:10px;font-weight:700;text-transform:uppercase}
 .gp-badge.pos{background:#2e7d32cc;color:#fff}
 .gp-badge.neg{background:#b71c1ccc;color:#fff}
+.gp-badge.info{background:#1565c0cc;color:#fff}
+.gp-badge.assets{background:#f9a825cc;color:#111}
 .gp-badge.unknown{background:#5a5a5acc;color:#ddd}
 .gp-mtype{position:absolute;top:6px;right:6px;font-size:15px;line-height:1;background:#000b;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;z-index:2}
 .gp-main{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}

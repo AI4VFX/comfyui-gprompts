@@ -1,8 +1,8 @@
 // Project-folder tree (real directories). Click to scope; double-click a name to
 // rename in place; right-click for cut/copy/paste/duplicate/pack/delete (which
 // act on the whole folder and its contents). Drop prompt cards to move them.
-import { el, clear, toast } from "../dom.js";
-import { store, folderCount } from "../store.js";
+import { el, clear, toast, copyText, formatBytes, sizeTier } from "../dom.js";
+import { store, folderCount, libraryCount, TRASH, inTrash } from "../store.js";
 import { API } from "../api.js";
 import { refreshLibrary } from "../data.js";
 import { confirmDialog, promptDialog } from "./confirm.js";
@@ -12,6 +12,18 @@ const parentOf = (f) => f.split("/").slice(0, -1).join("/");
 async function dropPromptsInto(ids, targetFolder) {
   const objs = ids.map((id) => store.prompts.find((p) => p.id === id)).filter(Boolean);
   let moved = 0;
+  // Dropping on the Trash row trashes (server mirrors the original path —
+  // a plain move to "Trash" would flatten the hierarchy and break Restore).
+  if (targetFolder === TRASH) {
+    for (const o of objs) {
+      if (inTrash(o.folder)) continue;
+      const r = await API.del(o.folder, o.name);
+      if (r.ok) moved++;
+    }
+    await refreshLibrary();
+    if (moved) toast(`Moved ${moved} prompt${moved > 1 ? "s" : ""} to Trash`, "ok");
+    return;
+  }
   for (const o of objs) {
     if (o.folder === targetFolder) continue;
     const r = await API.move(o.folder, o.name, targetFolder);
@@ -32,7 +44,7 @@ function startRename(folderVal, labelSpan) {
     const name = input.value.trim();
     if (save && name && name !== cur) {
       const r = await API.folderRename(folderVal, name);
-      if (r.ok && store.currentFolder === folderVal) store.currentFolder = r.folder;
+      if (r.ok && store.currentFolder === folderVal) store.set({ currentFolder: r.folder });
     }
     await refreshLibrary();
   };
@@ -107,13 +119,19 @@ function showFolderMenu(ev, folderVal) {
     ["sep"],
     ["Pack", async () => {
       const r = await API.folderPack(folderVal);
-      if (r.ok) toast("Packed — opening Explorer", "ok"); else toast(r.error || "Pack failed", "error");
+      if (r.ok) {
+        const name = r.zip.split(/[\\/]/).pop();
+        const copied = await copyText(r.zip);
+        toast(copied ? `Packed: ${name} — path copied to clipboard` : `Packed: ${r.zip}`,
+          "ok", store.packToastSeconds * 1000);
+      } else toast(r.error || "Pack failed", "error");
     }],
     ["sep"],
-    ["Delete", async () => {
-      if (await confirmDialog(`Delete folder "${folderVal}" and its contents to the Recycle Bin?`, "Delete", true)) {
+    ["Move to Trash", async () => {
+      if (await confirmDialog(`Move folder "${folderVal}" and its contents to Trash?`, "Move to Trash", true)) {
         const r = await API.folderDelete(folderVal);
-        if (r.ok) { if (store.currentFolder === folderVal) store.currentFolder = null; await refreshLibrary(); }
+        if (r.ok) { if (store.currentFolder === folderVal) store.set({ currentFolder: null }); await refreshLibrary(); toast("Folder moved to Trash", "ok"); }
+        else toast(r.error || "Failed", "error");
       }
     }, false, true],
   ];
@@ -123,20 +141,28 @@ function showFolderMenu(ev, folderVal) {
 function row(label, folderVal, depth, count, opts = {}) {
   const active = store.currentFolder === folderVal;
   const real = opts.real;
+  const trash = opts.trash;
   const labelSpan = el("span", { class: "gp-fname", text: label, style: "overflow:hidden;text-overflow:ellipsis" });
   // Defer single-click select so a double-click (rename) can cancel it.
   let clickT = null;
   const r = el("div", {
-    class: "gp-folder" + (active ? " gp-active" : ""),
+    class: "gp-folder" + (active ? " gp-active" : "") + (trash ? " gp-trash" : ""),
     style: `padding-left:${6 + depth * 12}px`,
     dataset: real ? { f: folderVal } : {},
     onclick: () => { clearTimeout(clickT); clickT = setTimeout(() => store.set({ currentFolder: folderVal }), 200); },
     ondblclick: real ? () => { clearTimeout(clickT); startRename(folderVal, labelSpan); } : null,
-    oncontextmenu: real ? (e) => showFolderMenu(e, folderVal) : null,
+    // Trash is permanent: no rename, no folder menu (and no native menu either).
+    oncontextmenu: real ? (e) => showFolderMenu(e, folderVal)
+      : trash ? (e) => { e.preventDefault(); e.stopPropagation(); } : null,
   });
   r.appendChild(labelSpan);
   const right = el("span", { class: "gp-row", style: "gap:4px" });
   if (count != null) right.appendChild(el("span", { class: "gp-fcount", text: String(count) }));
+  if (trash) right.appendChild(el("span", {
+    class: "gp-fsize gp-sz-" + sizeTier(store.trashBytes),
+    text: formatBytes(store.trashBytes),
+    title: "Size of the Trash folder on disk — empty it manually in Explorer",
+  }));
   r.appendChild(right);
 
   // Every row is a drop target for prompts. "All" (folderVal null) moves to root.
@@ -172,9 +198,11 @@ export function renderFolders(container) {
   container.appendChild(el("div", { class: "gp-row", style: "margin-bottom:6px" }, [
     el("button", { class: "gp-btn", style: "flex:1", text: "+ Folder", onclick: newFolder }),
   ]));
-  container.appendChild(row("All", null, 0, store.prompts.length));
+  container.appendChild(row("All", null, 0, libraryCount()));
   for (const f of store.folders) {
+    if (inTrash(f)) continue;   // Trash gets its own pinned row below
     const depth = f.split("/").length;
     container.appendChild(row(f.split("/").pop(), f, depth, folderCount(f), { real: true }));
   }
+  container.appendChild(row("🗑 Trash", TRASH, 0, folderCount(TRASH), { trash: true }));
 }

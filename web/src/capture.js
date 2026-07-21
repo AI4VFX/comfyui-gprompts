@@ -2,7 +2,7 @@
 // text encoder, label pos/neg, bond the latest result media, and save.
 import { app } from "./comfy.js";
 import { API } from "./api.js";
-import { store } from "./store.js";
+import { store, inTrash } from "./store.js";
 import { classify } from "./classify.js";
 import { getLatestMedia } from "./outputs.js";
 import { toast } from "./dom.js";
@@ -299,7 +299,8 @@ function currentWorkflow() {
 function buildPayload(traced, positive, negative, target) {
   const media = getLatestMedia();
   return {
-    folder: store.currentFolder || "",
+    // Capturing while browsing Trash lands at the root (never INTO Trash).
+    folder: inTrash(store.currentFolder || "") ? "" : (store.currentFolder || ""),
     title: suggestTitle(positive || negative),
     positive, negative,
     workflowType: traced.wfType,

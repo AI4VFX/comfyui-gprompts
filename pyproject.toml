@@ -1,9 +1,9 @@
 [project]
 name = "comfyui-gprompts"
 description = "G-Prompts — capture the text prompt that produced a result, review your library, and feed prompts back into workflows."
-version = "1.0.0"
+version = "1.1.0"
 license = { text = "MIT" }
-dependencies = ["Send2Trash"]
+dependencies = []
 
 [project.urls]
 Repository = "https://github.com/AI4VFX/comfyui-gprompts"

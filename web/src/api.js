@@ -34,6 +34,7 @@ export const API = {
   thumbRemove: (folder, name) => jpost("/thumb_remove", { folder, name }),
   thumbDelete: (folder, name) => jpost("/thumb_delete", { folder, name }),
   pack: (items) => jpost("/pack", { items }),
+  captureAssets: (folder, name) => jpost("/capture_assets", { folder, name }),
   tagRename: (oldName, newName) => jpost("/tag_rename", { old: oldName, new: newName }),
   tagDelete: (tag) => jpost("/tag_delete", { tag }),
   tagCreate: (name) => jpost("/tag_create", { name }),
@@ -50,8 +51,9 @@ export const API = {
 const q = (o) => Object.entries(o).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
 // `rev` (newest file mtime) busts the browser cache whenever the media changes.
 export const posterUrl = (p) =>
-  p.hasThumb
+  p.hasThumb && !p.hideThumb
     ? BASE + "/poster?" + q({ folder: p.folder, name: p.name }) + "&t=" + (p.rev || 0)
-    : BASE + "/default_thumb?type=" + encodeURIComponent(p.workflowType || "t2i");
+    : BASE + "/default_thumb?type=" + encodeURIComponent(p.workflowType || "t2i")
+      + (p.thumbChoice ? "&category=" + encodeURIComponent(p.thumbChoice) : "");
 export const mediaUrl = (p) =>
   BASE + "/media?" + q({ folder: p.folder, name: p.name }) + "&t=" + (p.rev || 0);

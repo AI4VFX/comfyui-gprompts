@@ -1,5 +1,6 @@
-"""The library store: scan folders, capture prompts, edit/move/remove/delete,
-and folder CRUD. The filesystem under the chosen root IS the database.
+"""The library store: scan folders, capture prompts, edit/move/remove/trash
+(move into <root>/Trash — nothing is ever deleted from disk), and folder CRUD.
+The filesystem under the chosen root IS the database.
 
 One card = one prompt set: a positive (<name>.txt) and/or negative
 (<name>.neg.txt), with metadata in <name>.json (the scan anchor).
@@ -11,12 +12,21 @@ import os
 import re
 import time
 
+from . import assets as A
 from . import config as C
 from . import media as M
 
 _LOCK = asyncio.Lock()
 
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+# The atomic rename/overwrite primitive used everywhere below, under one name.
+_replace_file = os.replace
+
+
+def _posix(p):
+    """Path with forward slashes (library-relative paths are always POSIX-style)."""
+    return (p or "").replace("\\", "/")
 
 
 def _is_meta_file(fn):
@@ -37,7 +47,7 @@ def _root():
 
 def _safe_dir(folder_rel):
     root = _root()
-    folder_rel = (folder_rel or "").strip().replace("\\", "/").strip("/")
+    folder_rel = _posix(folder_rel).strip().strip("/")
     abs_dir = os.path.normpath(os.path.join(root, folder_rel))
     if os.path.commonpath([abs_dir, root]) != root:
         raise ValueError("path escapes library root")
@@ -111,6 +121,10 @@ def _read_prompt(folder_rel, abs_dir, stem):
     media_kind, media_ext = _media_for_stem(abs_dir, stem)
     has_thumb = os.path.isfile(os.path.join(abs_dir, stem + C.THUMB_SUFFIX))
     has_workflow = os.path.isfile(os.path.join(abs_dir, stem + C.WORKFLOW_SUFFIX))
+    has_assets = os.path.isfile(os.path.join(abs_dir, stem + C.ASSETS_SUFFIX))
+    thumb_choice = meta.get("thumbChoice")
+    if thumb_choice not in C.DEFAULT_CATEGORIES:
+        thumb_choice = None
     try:
         created = meta.get("createdAt") or os.path.getmtime(meta_path)
     except OSError:
@@ -142,6 +156,9 @@ def _read_prompt(folder_rel, abs_dir, stem):
         "mediaExt": media_ext,
         "hasThumb": has_thumb,
         "hasWorkflow": has_workflow,
+        "hasAssets": has_assets,
+        "hideThumb": bool(meta.get("hideThumb")),
+        "thumbChoice": thumb_choice,
         "createdAt": created,
         "rev": rev,
     }
@@ -149,16 +166,25 @@ def _read_prompt(folder_rel, abs_dir, stem):
 
 def scan():
     root = _root()
+    C.ensure_trash(root)
     folders, prompts = [], []
+    trash_bytes = 0
     for cur, dirs, files in os.walk(root):
-        rel = os.path.relpath(cur, root).replace("\\", "/")
+        rel = _posix(os.path.relpath(cur, root))
         if rel == ".":
             rel = ""
         dirs[:] = [d for d in dirs
                    if d.lower() not in C.RESERVED_DIRS and not d.startswith(".")]
         if rel:
             folders.append(rel)
+        in_trash = rel == C.TRASH_DIR or rel.startswith(C.TRASH_DIR + "/")
         for fn in files:
+            if in_trash:
+                # size badge counts EVERY trashed file, incl. loose media
+                try:
+                    trash_bytes += os.path.getsize(os.path.join(cur, fn))
+                except OSError:
+                    pass
             if fn.startswith(".") or not _is_meta_file(fn):
                 continue
             stem = fn[: -len(C.META_EXT)]
@@ -167,7 +193,8 @@ def scan():
                 prompts.append(p)
     folders.sort(key=lambda s: s.lower())
     prompts.sort(key=lambda p: p["createdAt"], reverse=True)
-    return {"root": root, "folders": folders, "prompts": prompts, "registry": load_registry()}
+    return {"root": root, "folders": folders, "prompts": prompts,
+            "registry": load_registry(), "trashBytes": trash_bytes}
 
 
 # ── tag registry (declared tags, incl. empty ones not yet on any prompt) ─────
@@ -191,7 +218,7 @@ def _save_registry(tags):
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(tags, f, indent=2)
-    os.replace(tmp, p)
+    _replace_file(tmp, p)
 
 
 async def tag_create(name):
@@ -242,7 +269,7 @@ def resolve_output_ref(ref):
         base = folder_paths.get_input_directory()
     else:
         base = folder_paths.get_output_directory()
-    sub = (ref.get("subfolder") or "").replace("\\", "/")
+    sub = _posix(ref.get("subfolder"))
     path = os.path.normpath(os.path.join(base, sub, ref["filename"]))
     base = os.path.normpath(base)
     if os.path.commonpath([path, base]) != base or not os.path.isfile(path):
@@ -257,7 +284,7 @@ def _write_text_file(path, text):
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
-        os.replace(tmp, path)
+        _replace_file(tmp, path)
     elif os.path.isfile(path):
         try:
             os.remove(path)
@@ -270,7 +297,7 @@ def _write_record(abs_dir, stem, positive, negative, meta):
     tmp = mp + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
-    os.replace(tmp, mp)
+    _replace_file(tmp, mp)
     _write_text_file(os.path.join(abs_dir, stem + C.PROMPT_EXT), positive)
     _write_text_file(os.path.join(abs_dir, stem + C.NEG_EXT), negative)
 
@@ -302,6 +329,39 @@ def _read_meta(abs_dir, stem):
         return {}
 
 
+def _refresh_assets(abs_dir, stem, wf, enabled):
+    """Sync <stem>.assets.zip with the (re)captured workflow. The old zip is
+    always dropped first so an overwrite never leaves stale assets behind; a
+    failure here must never fail the capture itself."""
+    zp = os.path.join(abs_dir, stem + C.ASSETS_SUFFIX)
+    try:
+        if os.path.isfile(zp):
+            os.remove(zp)
+        if enabled and wf:
+            refs = A.collect_input_refs(wf)
+            if refs:
+                A.write_assets_zip(abs_dir, stem, refs)
+            return len(refs)
+    except Exception as e:
+        print("[G-Prompts] asset capture failed:", e)
+    return 0
+
+
+async def capture_assets_now(folder_rel, name):
+    """Retro-capture: rebuild the assets zip from the card's stored workflow."""
+    async with _LOCK:
+        name = _safe_name(name)
+        abs_dir = _safe_dir(folder_rel)
+        wfp = os.path.join(abs_dir, name + C.WORKFLOW_SUFFIX)
+        try:
+            with open(wfp, "r", encoding="utf-8") as f:
+                wf = json.load(f)
+        except (OSError, ValueError):
+            raise ValueError("no stored workflow for this card")
+        count = _refresh_assets(abs_dir, name, wf, enabled=True)
+        return {"count": count, "prompt": _read_prompt(folder_rel, abs_dir, name)}
+
+
 async def capture(items, skip_overwrite):
     """items: capture dicts {folder,title,positive,negative,workflowType,source,
     media,workflow,target,overwrite}. A `target` {folder,name} overwrites that
@@ -321,6 +381,7 @@ async def capture(items, skip_overwrite):
             if target and target.get("name"):
                 folder_rel = target.get("folder") or ""
                 try:
+                    _deny_trash_dest(folder_rel)
                     abs_dir = _safe_dir(folder_rel)
                 except (ValueError, RuntimeError) as e:
                     conflicts.append({"index": idx, "error": str(e)})
@@ -343,9 +404,14 @@ async def capture(items, skip_overwrite):
                     "workflowType": it.get("workflowType", "t2i"),
                     "createdAt": old.get("createdAt") or time.time(),
                 }
+                # Thumbnail prefs survive an overwrite (meta is rebuilt from scratch).
+                for k in ("hideThumb", "thumbChoice"):
+                    if old.get(k):
+                        meta[k] = old[k]
             else:
                 folder_rel = it.get("folder") or ""
                 try:
+                    _deny_trash_dest(folder_rel)
                     abs_dir = _safe_dir(folder_rel)
                 except (ValueError, RuntimeError) as e:
                     conflicts.append({"index": idx, "error": str(e)})
@@ -367,7 +433,9 @@ async def capture(items, skip_overwrite):
                 tmp = wfp + ".tmp"
                 with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(wf, f)
-                os.replace(tmp, wfp)
+                _replace_file(tmp, wfp)
+                _refresh_assets(abs_dir, stem, wf,
+                                enabled=bool(C.load_config().get("captureAssets")))
             if it.get("media"):
                 await _apply_media(abs_dir, stem, it.get("media"))
             p = _read_prompt(folder_rel, abs_dir, stem)
@@ -379,7 +447,8 @@ async def capture(items, skip_overwrite):
 def _stem_files(abs_dir, stem):
     stem = _safe_name(stem)
     out = []
-    for suffix in (C.META_EXT, C.PROMPT_EXT, C.NEG_EXT, C.WORKFLOW_SUFFIX, C.THUMB_SUFFIX):
+    for suffix in (C.META_EXT, C.PROMPT_EXT, C.NEG_EXT, C.WORKFLOW_SUFFIX,
+                   C.THUMB_SUFFIX, C.ASSETS_SUFFIX):
         p = os.path.join(abs_dir, stem + suffix)
         if os.path.isfile(p):
             out.append(p)
@@ -403,6 +472,17 @@ async def update_prompt(folder_rel, name, patch):
         for k in ("title", "tags"):
             if k in patch:
                 meta[k] = patch[k]
+        # Thumbnail prefs: falsy/invalid values delete the key (keeps meta clean).
+        if "hideThumb" in patch:
+            if patch["hideThumb"]:
+                meta["hideThumb"] = True
+            else:
+                meta.pop("hideThumb", None)
+        if "thumbChoice" in patch:
+            if patch["thumbChoice"] in C.DEFAULT_CATEGORIES:
+                meta["thumbChoice"] = patch["thumbChoice"]
+            else:
+                meta.pop("thumbChoice", None)
         new_stem = name
         if "title" in patch:
             desired = sanitize_name(patch["title"])
@@ -410,11 +490,11 @@ async def update_prompt(folder_rel, name, patch):
                 new_stem = _unique_stem(abs_dir, desired)
                 for p in _stem_files(abs_dir, name):
                     suffix = os.path.basename(p)[len(name):]
-                    os.replace(p, os.path.join(abs_dir, new_stem + suffix))
+                    _replace_file(p, os.path.join(abs_dir, new_stem + suffix))
         tmp = os.path.join(abs_dir, new_stem + C.META_EXT) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
-        os.replace(tmp, os.path.join(abs_dir, new_stem + C.META_EXT))
+        _replace_file(tmp, os.path.join(abs_dir, new_stem + C.META_EXT))
         # text edits (positive / negative) when provided
         if "positive" in patch:
             _write_text_file(os.path.join(abs_dir, new_stem + C.PROMPT_EXT), patch["positive"])
@@ -455,13 +535,14 @@ async def set_media(folder_rel, name, data_url, kind):
 async def move_prompt(folder_rel, name, to_folder):
     async with _LOCK:
         name = _safe_name(name)
+        _deny_trash_dest(to_folder)  # moving OUT of Trash (restore) is fine
         src_dir = _safe_dir(folder_rel)
         dst_dir = _safe_dir(to_folder)
         os.makedirs(dst_dir, exist_ok=True)
         stem = _unique_stem(dst_dir, name)
         for p in _stem_files(src_dir, name):
             suffix = os.path.basename(p)[len(name):]
-            os.replace(p, os.path.join(dst_dir, stem + suffix))
+            _replace_file(p, os.path.join(dst_dir, stem + suffix))
         return _read_prompt(to_folder, dst_dir, stem)
 
 
@@ -470,16 +551,20 @@ async def remove_prompt(folder_rel, name):
         abs_dir = _safe_dir(folder_rel)
         for p in _stem_files(abs_dir, name):
             try:
-                os.replace(p, p + C.REMOVED_SUFFIX)
+                _replace_file(p, p + C.REMOVED_SUFFIX)
             except OSError:
                 pass
         return True
 
 
 async def delete_prompt(folder_rel, name):
+    """Move a card's files into <root>/Trash (mirrored path). Restore = /move back."""
     async with _LOCK:
+        name = _safe_name(name)
+        if _in_trash(folder_rel):
+            raise ValueError("already in Trash")
         abs_dir = _safe_dir(folder_rel)
-        _recycle(_stem_files(abs_dir, name))
+        _move_files_to_trash(_stem_files(abs_dir, name), folder_rel, name)
         return True
 
 
@@ -500,6 +585,7 @@ async def copy_prompt(folder_rel, name, to_folder=None):
     """Duplicate a prompt (same folder) or copy into another folder."""
     import shutil
     async with _LOCK:
+        _deny_trash_dest(to_folder if to_folder is not None else folder_rel)
         src_dir = _safe_dir(folder_rel)
         dst_dir = _safe_dir(to_folder if to_folder is not None else folder_rel)
         os.makedirs(dst_dir, exist_ok=True)
@@ -509,7 +595,7 @@ async def copy_prompt(folder_rel, name, to_folder=None):
         for p in _stem_files(src_dir, name):
             suffix = os.path.basename(p)[len(name):]
             shutil.copy2(p, os.path.join(dst_dir, stem + suffix))
-        rel = os.path.relpath(dst_dir, _root()).replace("\\", "/")
+        rel = _posix(os.path.relpath(dst_dir, _root()))
         return _read_prompt("" if rel == "." else rel, dst_dir, stem)
 
 
@@ -519,27 +605,38 @@ async def thumb_remove(folder_rel, name):
         abs_dir = _safe_dir(folder_rel)
         for p in _media_files(abs_dir, name):
             try:
-                os.replace(p, p + C.REMOVED_SUFFIX)
+                _replace_file(p, p + C.REMOVED_SUFFIX)
             except OSError:
                 pass
         return _read_prompt(folder_rel, abs_dir, name)
 
 
 async def thumb_delete(folder_rel, name):
+    """Move only the card's media + poster into Trash (text/meta stay)."""
     async with _LOCK:
+        name = _safe_name(name)
+        if _in_trash(folder_rel):
+            raise ValueError("already in Trash")
         abs_dir = _safe_dir(folder_rel)
-        _recycle(_media_files(abs_dir, name))
+        _move_files_to_trash(_media_files(abs_dir, name), folder_rel, name)
         return _read_prompt(folder_rel, abs_dir, name)
 
 
 async def pack(items):
     """Zip each card's files. Single -> <stem>.zip beside it; multiple -> one
-    combined zip in the root. Reveal the result in Explorer. Returns the zip path."""
+    combined zip in the root. Returns the zip path (the frontend copies it to
+    the clipboard and shows it in a toast)."""
     import zipfile
     async with _LOCK:
         root = _root()
         if not items:
             raise ValueError("nothing to pack")
+        include_assets = bool(C.load_config().get("packIncludeAssets", True))
+
+        def _pack_files(abs_dir, stem):
+            return [p for p in _stem_files(abs_dir, stem)
+                    if include_assets or not p.endswith(C.ASSETS_SUFFIX)]
+
         if len(items) == 1:
             it = items[0]
             abs_dir = _safe_dir(it.get("folder", ""))
@@ -547,7 +644,7 @@ async def pack(items):
             zip_path = os.path.join(abs_dir, stem + ".zip")
             zip_path = _unique_path(zip_path)
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-                for p in _stem_files(abs_dir, stem):
+                for p in _pack_files(abs_dir, stem):
                     z.write(p, os.path.basename(p))
         else:
             zip_path = _unique_path(os.path.join(root, "G-Prompts Pack.zip"))
@@ -556,9 +653,8 @@ async def pack(items):
                     abs_dir = _safe_dir(it.get("folder", ""))
                     stem = it["name"]
                     arc = (it.get("folder") or "_unfiled").replace("/", "_")
-                    for p in _stem_files(abs_dir, stem):
+                    for p in _pack_files(abs_dir, stem):
                         z.write(p, os.path.join(arc, os.path.basename(p)))
-        _reveal(zip_path)
         return zip_path
 
 
@@ -570,18 +666,6 @@ def _unique_path(path):
     while os.path.exists("%s (%d)%s" % (base, i, ext)):
         i += 1
     return "%s (%d)%s" % (base, i, ext)
-
-
-def _reveal(path):
-    try:
-        if os.name == "nt":
-            import subprocess
-            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
-        else:
-            import subprocess
-            subprocess.Popen(["xdg-open", os.path.dirname(path)])
-    except Exception as e:
-        print("[G-Prompts] reveal failed:", e)
 
 
 async def _rewrite_all_metas(transform):
@@ -605,7 +689,7 @@ async def _rewrite_all_metas(transform):
                 tmp = mp + ".tmp"
                 with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(new, f, indent=2)
-                os.replace(tmp, mp)
+                _replace_file(tmp, mp)
                 changed += 1
     return changed
 
@@ -650,26 +734,39 @@ async def tag_delete(tag):
 async def folder_create(parent, name):
     async with _LOCK:
         name = sanitize_name(name)
-        abs_dir = _safe_dir((parent + "/" + name) if parent else name)
+        rel = (parent + "/" + name) if parent else name
+        _deny_trash_dest(rel)  # also blocks creating a root "trash" (any case)
+        abs_dir = _safe_dir(rel)
         os.makedirs(abs_dir, exist_ok=True)
-        return os.path.relpath(abs_dir, _root()).replace("\\", "/")
+        return _posix(os.path.relpath(abs_dir, _root()))
 
 
 async def folder_rename(folder_rel, new_name):
     async with _LOCK:
+        if _in_trash(folder_rel):
+            raise ValueError("Trash cannot be renamed")
         abs_dir = _safe_dir(folder_rel)
         parent = os.path.dirname(abs_dir)
         new_abs = os.path.join(parent, sanitize_name(new_name))
-        os.replace(abs_dir, new_abs)
-        return os.path.relpath(new_abs, _root()).replace("\\", "/")
+        _deny_trash_dest(_rel(new_abs))  # blocks renaming a folder to "Trash"
+        _replace_file(abs_dir, new_abs)
+        return _posix(os.path.relpath(new_abs, _root()))
 
 
 async def folder_delete(folder_rel):
+    """Move a folder (and contents) into <root>/Trash under its parent's path."""
     async with _LOCK:
+        if _in_trash(folder_rel):
+            raise ValueError("Trash cannot be deleted")
         abs_dir = _safe_dir(folder_rel)
         if abs_dir == _root():
             raise ValueError("cannot delete root")
-        _recycle([abs_dir])
+        parent_rel = _rel(os.path.dirname(abs_dir))
+        dst_parent = os.path.join(_root(), C.TRASH_DIR, parent_rel) if parent_rel \
+            else os.path.join(_root(), C.TRASH_DIR)
+        os.makedirs(dst_parent, exist_ok=True)
+        dst = _unique_dir(os.path.join(dst_parent, os.path.basename(abs_dir)))
+        _replace_file(abs_dir, dst)
         return True
 
 
@@ -683,13 +780,16 @@ def _unique_dir(path):
 
 
 def _rel(abs_dir):
-    r = os.path.relpath(abs_dir, _root()).replace("\\", "/")
+    r = _posix(os.path.relpath(abs_dir, _root()))
     return "" if r == "." else r
 
 
 async def folder_move(folder_rel, to_parent):
     """Move a folder (and all its contents) into another folder ('' = root)."""
     async with _LOCK:
+        if _in_trash(folder_rel):
+            raise ValueError("Trash cannot be moved")
+        _deny_trash_dest(to_parent or "")
         src = _safe_dir(folder_rel)
         if src == _root():
             raise ValueError("cannot move root")
@@ -699,7 +799,7 @@ async def folder_move(folder_rel, to_parent):
         if dst == sp or dst.startswith(sp + os.sep):
             raise ValueError("cannot move a folder into itself")
         dst = _unique_dir(dst)
-        os.replace(src, dst)
+        _replace_file(src, dst)
         return _rel(dst)
 
 
@@ -707,6 +807,9 @@ async def folder_copy(folder_rel, to_parent):
     """Copy a folder (and all its contents) into another folder ('' = root)."""
     import shutil
     async with _LOCK:
+        if _in_trash(folder_rel):
+            raise ValueError("Trash cannot be copied")
+        _deny_trash_dest(to_parent or "")
         src = _safe_dir(folder_rel)
         if src == _root():
             raise ValueError("cannot copy root")
@@ -729,27 +832,35 @@ def folder_pack_items(folder_rel):
     return items
 
 
-# ── recycle bin ─────────────────────────────────────────────────────────────
+# ── Trash ───────────────────────────────────────────────────────────────────
+# "Delete" never deletes: files MOVE into <root>/Trash, mirroring their
+# original folder path so Restore is just the reverse move. The app ships no
+# deletion primitives — the user empties <root>/Trash manually in Explorer.
 
-def _recycle(paths):
-    paths = [p for p in paths if p and os.path.exists(p)]
-    if not paths:
-        return True
-    try:
-        # send2trash routes to the OS recycle bin / trash on every platform.
-        from send2trash import send2trash
-        for p in paths:
-            send2trash(p)
-        return True
-    except Exception as e:
-        print("[G-Prompts] recycle unavailable, hard-deleting:", e)
-    for p in paths:
-        try:
-            if os.path.isdir(p):
-                import shutil
-                shutil.rmtree(p, ignore_errors=True)
-            else:
-                os.remove(p)
-        except OSError:
-            pass
-    return True
+def _in_trash(folder_rel):
+    top = _posix(folder_rel).strip().strip("/").split("/", 1)[0]
+    return top.lower() == C.TRASH_DIR.lower()
+
+
+def _deny_trash_dest(folder_rel):
+    if _in_trash(folder_rel):
+        raise ValueError("Trash is managed via Move to Trash / Restore")
+
+
+def _move_files_to_trash(src_files, folder_rel, stem):
+    if not src_files:
+        return
+    sub = _posix(folder_rel).strip().strip("/")
+    dst_dir = os.path.join(_root(), C.TRASH_DIR, sub) if sub \
+        else os.path.join(_root(), C.TRASH_DIR)
+    os.makedirs(dst_dir, exist_ok=True)
+    suffixes = [os.path.basename(p)[len(stem):] for p in src_files]
+    # os.replace clobbers, so the stem must be free for EVERY incoming suffix
+    # (plus the meta a previous trashing of the same stem may have left here).
+    cand, i = stem, 2
+    while any(os.path.exists(os.path.join(dst_dir, cand + s))
+              for s in suffixes + [C.META_EXT]):
+        cand = "%s (%d)" % (stem, i)
+        i += 1
+    for p, s in zip(src_files, suffixes):
+        _replace_file(p, os.path.join(dst_dir, cand + s))

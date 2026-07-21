@@ -68,9 +68,19 @@ export function mountSidebar(rootEl) {
   );
   toolbar.appendChild(el("input", { class: "gp-input gp-search", placeholder: "Search…",
     oninput: (e) => store.set({ search: e.target.value }) }));
-  detailBtn = el("button", { class: "gp-btn", text: "▤ Detail",
+  detailBtn = el("button", { class: "gp-btn", text: "▤ Details",
     onclick: () => store.set({ detailOn: !store.detailOn }) });
   toolbar.appendChild(detailBtn);
+  // Card sort: one button cycling Newest → Oldest → A→Z → Z→A (persisted pref).
+  const SORT_CYCLE = ["new", "old", "az", "za"];
+  const SORT_LABEL = { new: "↓ Newest", old: "↑ Oldest", az: "A→Z", za: "Z→A" };
+  const sortBtn = el("button", { class: "gp-btn", title: "Sort cards — click to cycle",
+    text: SORT_LABEL[store.sortMode] || SORT_LABEL.new,
+    onclick: () => {
+      const i = SORT_CYCLE.indexOf(store.sortMode);
+      store.set({ sortMode: SORT_CYCLE[(i + 1) % SORT_CYCLE.length] });
+    } });
+  toolbar.appendChild(sortBtn);
   tagSel = el("select", { class: "gp-select", onchange: (e) => store.set({ selectedTags: e.target.value ? [e.target.value] : [] }) });
   toolbar.appendChild(tagSel);
   const cardSlider = el("input", { type: "range", class: "gp-slider", min: "100", max: "250", step: "1",
@@ -82,6 +92,10 @@ export function mountSidebar(rootEl) {
   });
   toolbar.appendChild(cardSlider);
   toolbar.appendChild(el("button", { class: "gp-btn gp-icon-btn", text: "📦", title: "Pack selected (zip + open in Explorer)", onclick: packSelected }));
+  // Manual re-scan: picks up files added/changed directly in the library folder
+  // (e.g. a hand-placed .thumb.jpg or preview media) — rev busts the img cache.
+  toolbar.appendChild(el("button", { class: "gp-btn gp-icon-btn", text: "⟳", title: "Refresh — re-scan the library folder",
+    onclick: async () => { await refreshLibrary(); toast("Library refreshed", "ok"); } }));
   const gearBtn = el("button", { class: "gp-btn gp-icon-btn", text: "⚙", title: "Settings",
     onclick: () => { if (!store.configured) return; view = (view === "settings") ? "library" : "settings"; body._mode = null; renderBody(); } });
   toolbar.appendChild(gearBtn);
@@ -145,6 +159,7 @@ export function mountSidebar(rootEl) {
     }
 
     ensureLibraryLayout();
+    sortBtn.textContent = SORT_LABEL[store.sortMode] || SORT_LABEL.new;
     detailBtn.classList.toggle("gp-on", store.detailOn);
     detailEl.style.display = store.detailOn ? "" : "none";
     vdiv.style.display = store.detailOn ? "" : "none";
