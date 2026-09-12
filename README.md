@@ -43,6 +43,10 @@ Restart ComfyUI. **No Python dependencies** — G-Prompts runs on the standard l
 - **ffmpeg** is optional — it's only used to make compact thumbnails/posters for **video** results. Put `ffmpeg` on your `PATH` if you generate video; images and audio don't need it.
 - First launch: open the **Prompts** tab and pick a folder to store your library in.
 
+## What's new in 1.1.1
+
+- **The default thumbnails ship with the node.** Cards that have no result poster — audio captures, prompts saved before a render, anything whose thumbnail you've hidden — fall back to artwork for the four categories (Image / Video / Audio / Other). Until now that art lived only in my own library folder, so a fresh install fell through to a flat coloured tile with a type label on it. The four images are part of the package now and a new install looks right on first launch. Your own art still wins: drop `Generic-Image.png`, `Generic-Video.png`, `Generic-Audio.png` or `Generic-Other.png` into the `defaults` folder in your library root and G-Prompts uses those instead.
+
 ## What's new in 1.1.0
 
 - **Non-destructive delete** — "Delete" now moves cards into a **Trash** folder inside your library (mirrored hierarchy, one-click **Restore**, size badge). G-Prompts ships with **zero deletion code**: nothing it does can permanently destroy a file. You empty the Trash yourself, in your file manager, when *you* decide.
@@ -148,7 +152,7 @@ Video results get a compact poster (via ffmpeg) and play right on the card — d
 https://github.com/user-attachments/assets/ac93890a-ea6f-457a-bca8-270d1b4141e8
 
 ### Default thumbnails
-Hide a card's custom thumbnail or pick which built-in placeholder (Image / Video / Audio / Other) it shows.
+Hide a card's custom thumbnail or pick which built-in placeholder (Image / Video / Audio / Other) it shows. Replace the art by dropping your own `Generic-<Category>.png` into the `defaults` folder in your library root.
 
 https://github.com/user-attachments/assets/cfde5004-2cc1-45e7-943c-87f305c18fab
 
@@ -210,9 +214,13 @@ The filesystem **is** the database. Under your chosen root, each card is a small
 <root>/<Folder>/<name>.workflow.json  the workflow, for canvas rebuild
 <root>/<Folder>/<name>.assets.zip     captured input assets (optional)
 <root>/Trash/…                        trashed cards, original hierarchy preserved
+<root>/defaults/Generic-Image.png     your own default thumbnail (optional, overrides the packaged one)
+<root>/defaults/Generic-Video.png     …same for Video, Audio and Other (.png / .jpg / .webp)
 ```
 
 Because it's plain files, you can back it up, sync it, or reorganise it in your file manager and G-Prompts will follow along.
+
+The `defaults` folder starts empty. Anything you put there overrides the artwork that ships with the node, per category — handy if you'd rather your cards showed your own placeholder art. Delete a file and the packaged one comes back.
 
 ## Compatibility
 

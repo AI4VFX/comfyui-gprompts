@@ -147,13 +147,12 @@ async def r_workflow(request):
 async def r_default_thumb(request):
     wf_type = request.query.get("type", "t2i")
     category = request.query.get("category")   # per-card override (thumbChoice)
-    root = C.get_root()
-    if root:
-        p = M.default_thumb_path(root, wf_type, category)
-        if p:
-            # no-cache = revalidate via Last-Modified/ETag, so re-exported default
-            # art shows after a normal refresh without a full re-download each time.
-            return web.FileResponse(p, headers={"Cache-Control": "no-cache"})
+    p = M.default_thumb_path(C.get_root(), wf_type, category)
+    if p:
+        # no-cache = revalidate via Last-Modified/ETag, so re-exported default
+        # art shows after a normal refresh without a full re-download each time.
+        return web.FileResponse(p, headers={"Cache-Control": "no-cache"})
+    # Only reachable if the packaged art is missing too.
     return web.Response(body=M.placeholder_bytes(wf_type), content_type="image/jpeg")
 
 

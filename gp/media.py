@@ -175,18 +175,27 @@ def clear_media(base_path):
 
 # ── default type-thumbnails ─────────────────────────────────────────────────
 
+# Art that ships with the node, used when the library root supplies none.
+PACKAGED_DEFAULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "defaults")
+
+
 def default_thumb_path(root, wf_type, category=None):
     """category (a DEFAULT_CATEGORIES name) overrides the type mapping — used
-    for a card's per-prompt default-thumbnail choice."""
+    for a card's per-prompt default-thumbnail choice.
+
+    The library root is searched first, so dropping your own
+    Generic-<Category>.png into <root>/defaults replaces the packaged art."""
     if category in C.DEFAULT_CATEGORIES:
         cat = category
     else:
         cat = C.TYPE_TO_CATEGORY.get(wf_type, "Other")
-    ddir = os.path.join(root, "defaults")
-    for ext in C.DEFAULT_EXTS:
-        p = os.path.join(ddir, "Generic-%s%s" % (cat, ext))
-        if os.path.isfile(p):
-            return p
+    dirs = [os.path.join(root, "defaults")] if root else []
+    dirs.append(PACKAGED_DEFAULTS)
+    for ddir in dirs:
+        for ext in C.DEFAULT_EXTS:
+            p = os.path.join(ddir, "Generic-%s%s" % (cat, ext))
+            if os.path.isfile(p):
+                return p
     return None
 
 
