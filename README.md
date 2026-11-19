@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="ComfyUI custom node" src="https://img.shields.io/badge/ComfyUI-custom%20node-1f6feb">
-  <img alt="version" src="https://img.shields.io/badge/version-1.1.0-2ea043">
+  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-2ea043">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-8957e5">
 </p>
 
@@ -42,6 +42,12 @@ Restart ComfyUI. **No Python dependencies** — G-Prompts runs on the standard l
 
 - **ffmpeg** is optional — it's only used to make compact thumbnails/posters for **video** results. Put `ffmpeg` on your `PATH` if you generate video; images and audio don't need it.
 - First launch: open the **Prompts** tab and pick a folder to store your library in.
+
+## What's new in 1.2.0
+
+- The folder/tag column can be resized. Drag the line between it and the cards.
+- Trash has its own area at the bottom of the folder pane now, so it stays in view with a long folder list. Drag the line above it to make it taller, or hide it with the 🗑 button at the bottom of the pane (click again to bring it back).
+- The folder list has a size slider at the bottom, same as the one under the tags.
 
 ## What's new in 1.1.1
 
@@ -88,7 +94,7 @@ The panel is a grid of cards over a **folders + tags** column, with an editable 
 - The toolbar has **Search**, the **▤ Details** toggle, a **sort** button (↓ Newest → ↑ Oldest → A→Z → Z→A), a **tag filter**, a size slider for the grid, a **📦 Pack** button, and **⟳ Refresh** to rescan the library.
 
 ### Folders & tags
-Folders are **real directories** on disk. Tags live in a small registry so you can create empty tags up front and assign later — **drag tags onto cards** (or cards onto a tag) to tag in bulk. Click a tag to filter; the tag pane has its own size and sort. G-Prompts remembers the folder you left off in and reopens there (Settings → *Remember selected folder*).
+Folders are **real directories** on disk. Tags live in a small registry so you can create empty tags up front and assign later — **drag tags onto cards** (or cards onto a tag) to tag in bulk. Click a tag to filter; the tag pane has its own size and sort. The folder list has its own size slider too, and the 🗑 button next to it hides or shows the Trash area. Drag the column's right edge to make it wider. G-Prompts remembers the folder you left off in and reopens there (Settings → *Remember selected folder*).
 
 ### Detail pane — edit positive & negative
 Toggle **▤ Details** to open resizable **Positive** and **Negative** editors (on by default on fresh installs). Edit the text and **Save**; each block has its own **Fill** and **Copy**. Edits are written straight to the card's files — and a card you edited then **drag back onto the canvas rebuilds the workflow with your edited prompt**, not the original.

@@ -58,13 +58,14 @@ export async function copyText(text) {
 // Draggable divider. `fixedEl` is the element whose size the drag sets; the
 // sibling must be flex:1. mode "bottom" = fixedEl is below the divider,
 // "top" = above. onChange(ratio) is called with the new fraction of container.
-export function attachSplitter(divider, container, fixedEl, mode, onChange, min = 60) {
+// `min` = smallest fixedEl size; `minOther` = smallest size left for the sibling.
+export function attachSplitter(divider, container, fixedEl, mode, onChange, min = 60, minOther = min) {
   let dragging = false;
   const onMove = (e) => {
     if (!dragging) return;
     const rect = container.getBoundingClientRect();
     let basis = mode === "bottom" ? rect.bottom - e.clientY : e.clientY - rect.top;
-    basis = Math.max(min, Math.min(rect.height - min, basis));
+    basis = Math.max(min, Math.min(rect.height - minOther, basis));
     fixedEl.style.flex = "0 0 " + basis + "px";
     if (onChange) onChange(basis / rect.height);
     e.preventDefault();
@@ -103,6 +104,32 @@ export function attachResizer(handle, block, onChange, min = 70) {
   };
   handle.addEventListener("pointerdown", (e) => {
     dragging = true; startY = e.clientY; startH = block.getBoundingClientRect().height;
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+}
+
+// Resize an element's WIDTH by dragging a handle on its right edge.
+// maxFn() returns the current upper bound; onChange(px) fires with the new width.
+export function attachWidthResizer(handle, block, onChange, min = 110, maxFn = () => Infinity) {
+  let dragging = false, startX = 0, startW = 0;
+  const onMove = (e) => {
+    if (!dragging) return;
+    const w = Math.round(Math.max(min, Math.min(maxFn(), startW + (e.clientX - startX))));
+    block.style.width = w + "px";
+    if (onChange) onChange(w);
+    e.preventDefault();
+  };
+  const onUp = () => {
+    dragging = false;
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.body.style.userSelect = "";
+  };
+  handle.addEventListener("pointerdown", (e) => {
+    dragging = true; startX = e.clientX; startW = block.getBoundingClientRect().width;
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     document.body.style.userSelect = "none";
@@ -150,15 +177,22 @@ const CSS = `
 .gp-input,.gp-select{background:var(--comfy-input-bg,#222);color:var(--fg-color,#ddd);border:1px solid var(--border-color,#444);border-radius:6px;padding:4px 7px;font-size:12px}
 .gp-search{flex:1;min-width:90px}
 .gp-body{display:flex;flex:1;min-height:0}
-.gp-leftcol{width:165px;min-width:130px;display:flex;flex-direction:column;border-right:1px solid var(--border-color,#333)}
-.gp-folders{flex:1 1 58%;overflow:auto;padding:6px;min-height:60px}
+.gp-leftcol{width:165px;flex:0 0 auto;min-width:0;display:flex;flex-direction:column}
+.gp-hdiv{flex:0 0 7px;cursor:col-resize;position:relative;touch-action:none}
+.gp-hdiv::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--border-color,#333)}
+.gp-hdiv:hover::after{left:2px;width:3px;border-radius:2px;background:#4f9bff}
+.gp-folders{flex:1 1 58%;display:flex;flex-direction:column;overflow:hidden;padding:6px 6px 0;min-height:60px}
+.gp-folders-stack{flex:1;display:flex;flex-direction:column;min-height:0}
+.gp-folders-list{flex:1;overflow:auto;min-height:0;font-size:calc(13px * var(--gp-folder-scale,1))}
+.gp-trash-area{flex:0 0 auto;overflow:auto;min-height:0;font-size:calc(13px * var(--gp-folder-scale,1))}
+.gp-folders-foot{flex:0 0 auto;display:flex;align-items:center;gap:4px;padding:4px 0;margin-top:2px;border-top:1px solid var(--border-color,#2c2c2c)}
+.gp-mini.gp-on{background:#2d6cdf;border-color:#2d6cdf;color:#fff}
 .gp-folder{padding:4px 6px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;justify-content:space-between;gap:4px}
 .gp-folder:hover{background:rgba(255,255,255,.06)}
 .gp-folder.gp-active{background:#2d6cdf33;color:#fff}
 .gp-folder.gp-drop{outline:2px solid #4f9bff;outline-offset:-2px;background:#2d6cdf33}
-.gp-folder .gp-fcount{opacity:.5;font-size:11px}
-.gp-folder.gp-trash{margin-top:6px;border-top:1px solid var(--border-color,#333);padding-top:6px}
-.gp-fsize{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700;flex:0 0 auto}
+.gp-folder .gp-fcount{opacity:.5;font-size:.85em}
+.gp-fsize{font-size:.77em;padding:1px 6px;border-radius:8px;font-weight:700;flex:0 0 auto}
 .gp-fsize.gp-sz-green{background:#2e7d3244;color:#7bd489}
 .gp-fsize.gp-sz-orange{background:#ef6c0044;color:#ffb74d}
 .gp-fsize.gp-sz-red{background:#b71c1c44;color:#ef9a9a}

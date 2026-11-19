@@ -41,6 +41,10 @@ export const store = {
   foldersSplit: prefs.foldersSplit || 0.58, // folders vs tags split in left column
   tagSort: prefs.tagSort || "name",   // tag pane sort: name | count
   tagScale: prefs.tagScale || 1,      // tag list font scale
+  folderScale: prefs.folderScale || 1,  // folder list font scale
+  leftWidth: prefs.leftWidth || 165,    // left column (folders/tags) width, px
+  trashH: prefs.trashH || 0,            // Trash area height px (0 = fit the row)
+  trashOn: prefs.trashOn !== undefined ? !!prefs.trashOn : true,  // show the Trash area
   sortMode: prefs.sortMode || "new",  // card sort: new | old | az | za
   tagClipboard: null,                 // copied tag name(s) (for Paste tag)
   registryTags: [],                   // declared tags (incl. empty ones)
@@ -73,7 +77,7 @@ export const store = {
     Object.assign(this, patch);
     if ("cardSize" in patch || "detailOn" in patch
       || "detailScale" in patch || "tagSort" in patch || "tagScale" in patch
-      || "sortMode" in patch)
+      || "sortMode" in patch || "trashOn" in patch)
       this._savePrefs();
     if ("currentFolder" in patch && this.rememberFolder) this._saveFolder();
     this.emit();
@@ -93,6 +97,8 @@ export const store = {
         detailOn: this.detailOn, detailScale: this.detailScale,
         detailSplit: this.detailSplit, detailNegRatio: this.detailNegRatio,
         foldersSplit: this.foldersSplit, tagSort: this.tagSort, tagScale: this.tagScale,
+        folderScale: this.folderScale, leftWidth: this.leftWidth,
+        trashH: this.trashH, trashOn: this.trashOn,
         sortMode: this.sortMode,
       }));
     } catch (_) {}

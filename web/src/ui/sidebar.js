@@ -1,7 +1,7 @@
 // The sidebar tab shell: toolbar over a body that shows first-run setup, the
 // Settings panel, or [folders | (cards on top, detail pane on bottom)].
 import { app } from "../comfy.js";
-import { el, clear, injectCSS, toast, attachSplitter } from "../dom.js";
+import { el, clear, injectCSS, toast, attachSplitter, attachWidthResizer } from "../dom.js";
 import { store, allTags, selectedPromptObjs } from "../store.js";
 import { captureWorkflow } from "../capture.js";
 import { API } from "../api.js";
@@ -117,6 +117,11 @@ export function mountSidebar(rootEl) {
     tagsEl = el("div", { class: "gp-tags" });
     const ldiv = el("div", { class: "gp-vdiv", title: "Drag to resize folders vs tags" });
     const leftcol = el("div", { class: "gp-leftcol" }, [foldersEl, ldiv, tagsEl]);
+    leftcol.style.width = store.leftWidth + "px";
+    // Drag the left column's right edge to resize it (cards keep >= 160px).
+    const hdiv = el("div", { class: "gp-hdiv", title: "Drag to resize the folder/tag column" });
+    attachWidthResizer(hdiv, leftcol, (w) => { store.leftWidth = w; store._savePrefs(); },
+      110, () => Math.max(110, body.getBoundingClientRect().width - 160));
     attachSplitter(ldiv, leftcol, foldersEl, "top", (ratio) => { store.foldersSplit = ratio; store._savePrefs(); }, 60);
     gridWrap = el("div", { class: "gp-grid-wrap",
       onclick: (e) => { if (!e.target.closest(".gp-card")) store.setSelection({ selectedId: null, selectedIds: [] }); },
@@ -125,7 +130,7 @@ export function mountSidebar(rootEl) {
     detailEl = el("div", { class: "gp-detail" });
     detailEl.style.flex = "0 0 " + (store.detailSplit * 100) + "%";
     const mainEl = el("div", { class: "gp-main" }, [gridWrap, vdiv, detailEl]);
-    body.append(leftcol, mainEl);
+    body.append(leftcol, hdiv, mainEl);
     attachSplitter(vdiv, mainEl, detailEl, "bottom", (ratio) => { store.detailSplit = ratio; store._savePrefs(); }, 120);
   }
 

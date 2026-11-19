@@ -1,7 +1,7 @@
 // Project-folder tree (real directories). Click to scope; double-click a name to
 // rename in place; right-click for cut/copy/paste/duplicate/pack/delete (which
 // act on the whole folder and its contents). Drop prompt cards to move them.
-import { el, clear, toast, copyText, formatBytes, sizeTier } from "../dom.js";
+import { el, clear, toast, copyText, formatBytes, sizeTier, attachSplitter } from "../dom.js";
 import { store, folderCount, libraryCount, TRASH, inTrash } from "../store.js";
 import { API } from "../api.js";
 import { refreshLibrary } from "../data.js";
@@ -191,18 +191,59 @@ async function newFolder() {
 }
 
 export function renderFolders(container) {
+  // Keep the list's scroll position across re-renders.
+  const oldList = container.querySelector(".gp-folders-list");
+  const scrollTop = oldList ? oldList.scrollTop : 0;
   clear(container);
+  container.style.setProperty("--gp-folder-scale", store.folderScale);
   // Real folder rows stop propagation in their own handler; everything else in
   // the pane (empty space, All, Unfiled) gets the custom menu — never the native.
   container.oncontextmenu = (e) => showFolderEmptyMenu(e);
   container.appendChild(el("div", { class: "gp-row", style: "margin-bottom:6px" }, [
     el("button", { class: "gp-btn", style: "flex:1", text: "+ Folder", onclick: newFolder }),
   ]));
-  container.appendChild(row("All", null, 0, libraryCount()));
+
+  // Folder list (scrolls) over a pinned Trash area, split by a draggable edge.
+  const list = el("div", { class: "gp-folders-list" });
+  list.appendChild(row("All", null, 0, libraryCount()));
   for (const f of store.folders) {
-    if (inTrash(f)) continue;   // Trash gets its own pinned row below
+    if (inTrash(f)) continue;   // Trash gets its own pinned area below
     const depth = f.split("/").length;
-    container.appendChild(row(f.split("/").pop(), f, depth, folderCount(f), { real: true }));
+    list.appendChild(row(f.split("/").pop(), f, depth, folderCount(f), { real: true }));
   }
-  container.appendChild(row("🗑 Trash", TRASH, 0, folderCount(TRASH), { trash: true }));
+  const stack = el("div", { class: "gp-folders-stack" }, [list]);
+  if (store.trashOn) {
+    const tdiv = el("div", { class: "gp-vdiv", title: "Drag to resize folders vs Trash" });
+    const trashArea = el("div", { class: "gp-trash-area" }, [
+      row("🗑 Trash", TRASH, 0, folderCount(TRASH), { trash: true }),
+    ]);
+    if (store.trashH) trashArea.style.flex = "0 0 " + store.trashH + "px";
+    stack.append(tdiv, trashArea);
+    attachSplitter(tdiv, stack, trashArea, "bottom", (ratio) => {
+      store.trashH = Math.round(ratio * stack.getBoundingClientRect().height); store._savePrefs();
+    }, 30, 60);
+  }
+  container.appendChild(stack);
+  list.scrollTop = scrollTop;
+
+  // Footer: size slider (CSS var only — no re-render) + Trash show/hide toggle.
+  const slider = el("input", { type: "range", class: "gp-slider", min: "70", max: "200", step: "1",
+    value: String(Math.round(store.folderScale * 100)), title: "Folder size", style: "flex:1;min-width:0" });
+  slider.addEventListener("input", (e) => {
+    const v = e.target.value / 100;
+    store.folderScale = v; store._savePrefs();
+    container.style.setProperty("--gp-folder-scale", v);
+  });
+  const trashBtn = el("button", { class: "gp-mini" + (store.trashOn ? " gp-on" : ""), text: "🗑",
+    title: store.trashOn ? "Hide the Trash area" : "Show the Trash area",
+    onclick: () => {
+      const on = !store.trashOn;
+      // Hiding Trash while viewing it would leave you in an invisible folder.
+      const patch = { trashOn: on };
+      if (!on && store.currentFolder != null && inTrash(store.currentFolder)) patch.currentFolder = null;
+      store.set(patch);
+    } });
+  container.appendChild(el("div", { class: "gp-folders-foot" }, [
+    el("span", { class: "gp-muted", text: "size" }), slider, trashBtn,
+  ]));
 }
