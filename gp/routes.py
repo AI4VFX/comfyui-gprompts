@@ -38,6 +38,7 @@ async def r_state(request):
         "lastFolder": cfg.get("lastFolder"),
         "captureAssets": cfg.get("captureAssets", False),
         "packIncludeAssets": cfg.get("packIncludeAssets", True),
+        "restoreAssets": cfg.get("restoreAssets", True),
         "packToastSeconds": cfg.get("packToastSeconds", 2),
     })
 
@@ -245,6 +246,16 @@ async def r_capture_assets(request):
     try:
         d = await request.json()
         result = await S.capture_assets_now(d.get("folder", ""), d["name"])
+        return _ok(result)
+    except Exception as e:
+        return _bad(e, 500)
+
+
+@routes.post(PREFIX + "/restore_assets")
+async def r_restore_assets(request):
+    try:
+        d = await request.json()
+        result = await S.restore_assets(d.get("folder", ""), d["name"])
         return _ok(result)
     except Exception as e:
         return _bad(e, 500)

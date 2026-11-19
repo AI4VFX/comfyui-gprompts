@@ -1,6 +1,7 @@
 // Feed a stored prompt back into the active workflow.
 import { app } from "./comfy.js";
 import { toast } from "./dom.js";
+import { store } from "./store.js";
 import { polarityForNodes } from "./capture.js";
 
 const LG = () => (window.LiteGraph || (app && app.LiteGraph));
@@ -147,6 +148,23 @@ export async function loadWorkflowOnCanvas(prompt) {
   if (!wf || wf.error || wf.ok === false || !(wf.nodes || wf.last_node_id !== undefined)) {
     toast("Could not load workflow", "error"); return;
   }
+  // Put the card's captured input files back BEFORE loading, so Load Image /
+  // Video / Audio nodes find them. Never fatal: a failure just loads as before.
+  let restoreNote = "";
+  if (prompt.hasAssets && store.restoreAssets) {
+    try {
+      const r = await API.restoreAssets(prompt.folder, prompt.name);
+      if (r && r.ok !== false) {
+        const n = (r.restored || []).length, d = (r.differ || []).length;
+        if (n) {
+          restoreNote = ` · restored ${n} input file${n > 1 ? "s" : ""}`;
+          // New files: refresh the nodes' file dropdowns so they list them.
+          try { if (app.refreshComboInNodes) await app.refreshComboInNodes(); } catch (_) {}
+        }
+        if (d) toast(`${d} input file${d > 1 ? "s" : ""} in the input folder differ from the captured one${d > 1 ? "s" : ""}: kept yours (${r.differ.slice(0, 3).join(", ")}${d > 3 ? "…" : ""})`, "error", 6000);
+      }
+    } catch (e) { console.warn("[G-Prompts] asset restore failed", e); }
+  }
   try {
     await app.loadGraphData(wf);
     // The sidecar holds the prompt as it was AT CAPTURE. If the card was edited
@@ -160,7 +178,7 @@ export async function loadWorkflowOnCanvas(prompt) {
       patched = patchWorkflowText(wf, orig.negative, prompt.negative) || patched;
     } catch (_) {}
     if (patched) await app.loadGraphData(wf);
-    toast("Loaded workflow: " + prompt.title, "ok");
+    toast("Loaded workflow: " + prompt.title + restoreNote, "ok");
   }
   catch (e) { toast("Load failed: " + e.message, "error"); }
 }

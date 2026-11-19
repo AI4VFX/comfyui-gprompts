@@ -9,7 +9,9 @@ path outside the input dir).
 
 import os
 import re
+import shutil
 import zipfile
+import zlib
 
 from . import config as C
 
@@ -68,3 +70,52 @@ def write_assets_zip(abs_dir, stem, refs):
             z.write(p, arc)
     os.replace(tmp, zp)
     return zp
+
+
+def _file_crc(path):
+    crc = 0
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            crc = zlib.crc32(chunk, crc)
+    return crc & 0xFFFFFFFF
+
+
+def restore_missing(abs_dir, stem):
+    """Copy the card's captured input assets back into ComfyUI's input directory
+    where they are missing. An existing file is NEVER overwritten: identical
+    ones are skipped, different ones are reported in "differ"."""
+    import folder_paths
+    out = {"hasZip": False, "restored": [], "differ": [], "present": 0}
+    zp = os.path.join(abs_dir, stem + C.ASSETS_SUFFIX)
+    if not os.path.isfile(zp):
+        return out
+    out["hasZip"] = True
+    input_dir = os.path.normpath(folder_paths.get_input_directory())
+    with zipfile.ZipFile(zp, "r") as z:
+        for info in z.infolist():
+            if info.is_dir():
+                continue
+            rel = info.filename.strip("/")
+            if not rel or not rel.lower().endswith(_MEDIA_EXTS):
+                continue            # media only, same whitelist as capture
+            dst = os.path.normpath(os.path.join(input_dir, rel))
+            try:
+                if os.path.commonpath([dst, input_dir]) != input_dir:
+                    continue        # would land outside the input dir
+            except ValueError:
+                continue            # different drive
+            if os.path.exists(dst):
+                same = (os.path.isfile(dst) and os.path.getsize(dst) == info.file_size
+                        and _file_crc(dst) == info.CRC)
+                if same:
+                    out["present"] += 1
+                else:
+                    out["differ"].append(rel)
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            tmp = dst + ".gptmp"
+            with z.open(info) as src, open(tmp, "wb") as f:
+                shutil.copyfileobj(src, f)
+            os.rename(tmp, dst)
+            out["restored"].append(rel)
+    return out

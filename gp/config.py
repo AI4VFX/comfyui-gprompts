@@ -76,11 +76,12 @@ _DEFAULT_CONFIG = {"root": None, "skipOverwriteWarning": False, "autoClose": Fal
                    "captureShortcut": "Alt+Q",
                    "rememberFolder": True, "lastFolder": None,
                    "captureAssets": False, "packIncludeAssets": True,
+                   "restoreAssets": True,
                    "packToastSeconds": 2}
 # Settings the client may set via /set_config (root is set via /set_root only).
 SETTABLE_KEYS = ("skipOverwriteWarning", "autoClose", "captureShortcut",
                  "rememberFolder", "lastFolder", "captureAssets", "packIncludeAssets",
-                 "packToastSeconds")
+                 "restoreAssets", "packToastSeconds")
 _STRING_KEYS = ("captureShortcut",)
 # lastFolder: None = "All", "" = library root, "Foo/Bar" = a folder — the None
 # must survive the round-trip, so it gets nullable-string coercion.

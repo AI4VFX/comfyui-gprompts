@@ -90,6 +90,9 @@ export function renderSettings(container) {
     wrap.appendChild(toggleRow(
       "Include captured assets in packs", "Pack the .assets.zip together with everything else.",
       () => store.packIncludeAssets, async (v) => { store.packIncludeAssets = v; await API.setConfig({ packIncludeAssets: v }); }));
+    wrap.appendChild(toggleRow(
+      "Restore missing input assets", "When a card is dropped on the canvas, copy its captured input files back into ComfyUI's input folder if they are missing. Existing files are never overwritten.",
+      () => store.restoreAssets, async (v) => { store.restoreAssets = v; await API.setConfig({ restoreAssets: v }); }));
 
     // ── pack toast duration (1–15 s) ──
     const secLabel = el("span", { class: "gp-muted", style: "min-width:32px;text-align:right",

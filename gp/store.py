@@ -362,6 +362,12 @@ async def capture_assets_now(folder_rel, name):
         return {"count": count, "prompt": _read_prompt(folder_rel, abs_dir, name)}
 
 
+async def restore_assets(folder_rel, name):
+    """Put a card's captured input assets back into ComfyUI's input dir (missing only)."""
+    async with _LOCK:
+        return A.restore_missing(_safe_dir(folder_rel), _safe_name(name))
+
+
 async def capture(items, skip_overwrite):
     """items: capture dicts {folder,title,positive,negative,workflowType,source,
     media,workflow,target,overwrite}. A `target` {folder,name} overwrites that

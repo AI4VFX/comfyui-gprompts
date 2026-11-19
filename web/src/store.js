@@ -56,6 +56,7 @@ export const store = {
   savedFolder: null,                  // lastFolder from server config (restore once)
   captureAssets: false,               // zip workflow input media on capture
   packIncludeAssets: true,            // include .assets.zip in packs
+  restoreAssets: true,                // copy missing input assets back when a card loads its workflow
   packToastSeconds: 2,                // how long the "Packed" toast stays up
 
   _subs: new Set(),

@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="ComfyUI custom node" src="https://img.shields.io/badge/ComfyUI-custom%20node-1f6feb">
-  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-2ea043">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.0-2ea043">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-8957e5">
 </p>
 
@@ -42,6 +42,10 @@ Restart ComfyUI. **No Python dependencies** — G-Prompts runs on the standard l
 
 - **ffmpeg** is optional — it's only used to make compact thumbnails/posters for **video** results. Put `ffmpeg` on your `PATH` if you generate video; images and audio don't need it.
 - First launch: open the **Prompts** tab and pick a folder to store your library in.
+
+## What's new in 1.3.0
+
+- Cards with captured input assets now put them back when you load the workflow. Drag the card onto the canvas and any input file that's missing from ComfyUI's input folder is copied out of the card's `.assets.zip` first, so the Load Image / Video / Audio nodes aren't empty. Files that are already there are never overwritten: if one has the same name but different content you get a warning and yours is kept. There's a switch for it in Settings (*Restore missing input assets*, on by default).
 
 ## What's new in 1.2.0
 
@@ -126,6 +130,7 @@ Deleting a card, thumbnail, or folder **moves it to a `Trash/` folder inside you
 - **Remember selected folder** — reopen in the folder you last selected.
 - **Capture input assets** — on capture, zip the workflow's referenced input media beside the card (`.assets.zip`).
 - **Include captured assets in packs** — bundle the `.assets.zip` into Packs.
+- **Restore missing input assets** — when a card is dropped on the canvas, copy its captured input files back into ComfyUI's input folder if they're missing. Existing files are never overwritten.
 - **Pack notification duration** — how long the "Packed — path copied" toast stays up (1–15 s).
 
 ## 🎬 Feature demos

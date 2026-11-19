@@ -35,6 +35,7 @@ export const API = {
   thumbDelete: (folder, name) => jpost("/thumb_delete", { folder, name }),
   pack: (items) => jpost("/pack", { items }),
   captureAssets: (folder, name) => jpost("/capture_assets", { folder, name }),
+  restoreAssets: (folder, name) => jpost("/restore_assets", { folder, name }),
   tagRename: (oldName, newName) => jpost("/tag_rename", { old: oldName, new: newName }),
   tagDelete: (tag) => jpost("/tag_delete", { tag }),
   tagCreate: (name) => jpost("/tag_create", { name }),

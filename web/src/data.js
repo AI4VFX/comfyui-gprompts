@@ -15,6 +15,7 @@ export async function refreshState() {
     store.savedFolder = s.lastFolder != null ? s.lastFolder : null;
     store.captureAssets = !!s.captureAssets;
     store.packIncludeAssets = s.packIncludeAssets !== false;
+    store.restoreAssets = s.restoreAssets !== false;
     store.packToastSeconds = Math.min(15, Math.max(1, Number(s.packToastSeconds) || 2));
   }
   return s;
